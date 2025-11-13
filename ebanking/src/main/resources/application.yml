@@ -1,6 +1,3 @@
-
 spring:
   application:
-    name: eBankingProject
-  profiles:
-    active: dev
+    name: ebanking

@@ -3,7 +3,6 @@ package org.example.ebanking.service;
 import java.security.Principal;
 import java.security.SecureRandom;
 
-import org.example.ebanking.dto.BankingRole;
 import org.example.ebanking.dto.LoginDto;
 import org.example.ebanking.dto.OtpDto;
 import org.example.ebanking.dto.ResetPasswordDto;
@@ -42,6 +41,7 @@ public class UserServiceImpl implements UserService {
 	private final JwtUtil jwtUtil;
 	private final UserDetailsService userDetailsService;
 	private final SavingAccountRepository savingAccountRepository;
+	private User user;
 
 	@Override
 	public ResponseEntity<ResponseDto> register(UserDto dto) {
@@ -64,23 +64,17 @@ public class UserServiceImpl implements UserService {
 	@Override
 	public ResponseEntity<ResponseDto> verifyOtp(OtpDto dto) {
 		int otp = redisService.fetchOtp(dto.getEmail());
-		if (otp == 0)
-			throw new ExpiredException("Otp Expired");
-		else {
-			if (otp == dto.getOtp()) {
-				UserDto userDto = redisService.fetchUserDto(dto.getEmail());
-				User user = new User(null, userDto.getName(), userDto.getEmail(), userDto.getMobile(), userDto.getDob(),
-						passwordEncoder.encode(userDto.getPassword()), BankingRole.valueOf(userDto.getRole()), null,
-						null, null);
-				userRepository.save(user);
-				redisService.deleteUserDto(dto.getEmail());
-				redisService.deleteUserOtp(dto.getEmail());
-				return ResponseEntity.status(201).body(new ResponseDto("Account Created Success", userDto));
-			} else {
+		if (user.getBankAccount() != null) {
+			if (user.getBankAccount().isActive())
+				throw new DataExistsException("Account Already Exists and You can not new Create One");
+			else
+				throw new DataExistsException("Account Still Pending for Verification Wait for some time");
+
+		} else {
 				throw new MissMatchException("Otp Missmatch");
 			}
 		}
-	}
+	
 
 	@Override
 	public ResponseEntity<ResponseDto> resendOtp(String email) {

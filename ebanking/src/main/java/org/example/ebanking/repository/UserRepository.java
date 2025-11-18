@@ -1,5 +1,7 @@
 package org.example.ebanking.repository;
 
+import java.util.Optional;
+
 import org.example.ebanking.entity.User;
 import org.springframework.data.jpa.repository.JpaRepository;
 
@@ -10,5 +12,5 @@ import org.springframework.data.jpa.repository.JpaRepository;
 		boolean existsByEmail(String email);
 
 		User findByEmail(String email);
-
+		Optional<User> findByBankAccount_accountNumber(Long accountNumber);
 }

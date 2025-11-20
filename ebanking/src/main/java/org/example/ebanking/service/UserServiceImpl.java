@@ -1,24 +1,37 @@
 package org.example.ebanking.service;
 
+
 import java.security.Principal;
 import java.security.SecureRandom;
+import java.util.LinkedHashMap;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Map;
 
+import org.example.ebanking.dto.BankBalanceDto;
 import org.example.ebanking.dto.LoginDto;
 import org.example.ebanking.dto.OtpDto;
+import org.example.ebanking.dto.RazorpayDto;
 import org.example.ebanking.dto.ResetPasswordDto;
 import org.example.ebanking.dto.ResponseDto;
 import org.example.ebanking.dto.SavingAccountDto;
+import org.example.ebanking.dto.TransferDto;
 import org.example.ebanking.dto.UserDto;
+import org.example.ebanking.entity.BankTransactions;
 import org.example.ebanking.entity.SavingBankAccount;
 import org.example.ebanking.entity.User;
 import org.example.ebanking.exception.DataExistsException;
 import org.example.ebanking.exception.DataNotFoundException;
 import org.example.ebanking.exception.ExpiredException;
 import org.example.ebanking.exception.MissMatchException;
+import org.example.ebanking.exception.PaymentFailedException;
+import org.example.ebanking.mapper.SavingsBankMapper;
+import org.example.ebanking.mapper.UserMapper;
 import org.example.ebanking.repository.SavingAccountRepository;
 import org.example.ebanking.repository.UserRepository;
 import org.example.ebanking.util.JwtUtil;
 import org.example.ebanking.util.MessageSendingHelper;
+import org.example.ebanking.util.PaymentUtil;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -27,7 +40,9 @@ import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
+import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
+
 
 @Service
 @RequiredArgsConstructor
@@ -41,7 +56,9 @@ public class UserServiceImpl implements UserService {
 	private final JwtUtil jwtUtil;
 	private final UserDetailsService userDetailsService;
 	private final SavingAccountRepository savingAccountRepository;
-	private User user;
+	private final UserMapper userMapper;
+	private final SavingsBankMapper bankMapper;
+	private final PaymentUtil paymentUtil;
 
 	@Override
 	public ResponseEntity<ResponseDto> register(UserDto dto) {
@@ -64,17 +81,21 @@ public class UserServiceImpl implements UserService {
 	@Override
 	public ResponseEntity<ResponseDto> verifyOtp(OtpDto dto) {
 		int otp = redisService.fetchOtp(dto.getEmail());
-		if (user.getBankAccount() != null) {
-			if (user.getBankAccount().isActive())
-				throw new DataExistsException("Account Already Exists and You can not new Create One");
-			else
-				throw new DataExistsException("Account Still Pending for Verification Wait for some time");
-
-		} else {
+		if (otp == 0)
+			throw new ExpiredException("Otp Expired");
+		else {
+			if (otp == dto.getOtp()) {
+				UserDto userDto = redisService.fetchUserDto(dto.getEmail());
+				User user = userMapper.toEntity(userDto);
+				userRepository.save(user);
+				redisService.deleteUserDto(dto.getEmail());
+				redisService.deleteUserOtp(dto.getEmail());
+				return ResponseEntity.status(201).body(new ResponseDto("Account Created Success", userDto));
+			} else {
 				throw new MissMatchException("Otp Missmatch");
 			}
 		}
-	
+	}
 
 	@Override
 	public ResponseEntity<ResponseDto> resendOtp(String email) {
@@ -117,8 +138,9 @@ public class UserServiceImpl implements UserService {
 					User user = userRepository.findByEmail(dto.getEmail());
 					user.setPassword(passwordEncoder.encode(dto.getPassword()));
 					userRepository.save(user);
-
-					return ResponseEntity.status(200).body(new ResponseDto("Password Reset Success", dto.getEmail()));
+					redisService.deleteUserOtp(dto.getEmail());
+					return ResponseEntity.status(200)
+							.body(new ResponseDto("Password Reset Success", userMapper.toDto(user)));
 				}
 			}
 		}
@@ -129,7 +151,10 @@ public class UserServiceImpl implements UserService {
 		authenticationManager.authenticate(new UsernamePasswordAuthenticationToken(dto.getEmail(), dto.getPassword()));
 		UserDetails userDetails = userDetailsService.loadUserByUsername(dto.getEmail());
 		String token = jwtUtil.generateToken(userDetails);
-		return ResponseEntity.ok(new ResponseDto("Login Success", token));
+		LinkedHashMap<String, Object> map = new LinkedHashMap<String, Object>();
+		map.put("token", token);
+		map.put("user", userMapper.toDto(userRepository.findByEmail(dto.getEmail())));
+		return ResponseEntity.ok(new ResponseDto("Login Success", map));
 	}
 
 	@Override
@@ -146,12 +171,15 @@ public class UserServiceImpl implements UserService {
 	@Override
 	public ResponseEntity<ResponseDto> createSavingsAccount(Principal principal, SavingAccountDto accountDto) {
 		User user = getLoggedInUser(principal);
-		if (user.getBankAccount() != null)
-			throw new DataExistsException("Account Already Exists and You can not new Create One");
-		else {
-			SavingBankAccount bankAccount = new SavingBankAccount(null, accountDto.getAddress(), "EBNK000001",
-					accountDto.getFullName(), accountDto.getPan(), accountDto.getAadhar(), "EBANK-DEFAULT", 0.0, false,
-					false);
+		if (user.getBankAccount() != null) {
+			if (user.getBankAccount().isActive())
+				throw new DataExistsException("Account Already Exists and You can not new Create One");
+			else
+				throw new DataExistsException("Account Still Pending for Verification Wait for some time");
+
+		} else {
+			SavingBankAccount bankAccount = bankMapper.toEntity(accountDto);
+
 			savingAccountRepository.save(bankAccount);
 			user.setBankAccount(bankAccount);
 			userRepository.save(user);
@@ -160,13 +188,105 @@ public class UserServiceImpl implements UserService {
 		}
 	}
 
+	@Override
+	public ResponseEntity<ResponseDto> checkBalance(Principal principal) {
+		User user = getLoggedInUser(principal);
+		SavingBankAccount account = user.getBankAccount();
+		if (account == null)
+			throw new DataNotFoundException("No Bank Accounts FOund Linked with This User account");
+		else {
+			return ResponseEntity.ok(new ResponseDto("Account Found",
+					new BankBalanceDto(account.getAccountNumber(), account.getBalance())));
+		}
+	}
+
+	@Override
+	public ResponseEntity<ResponseDto> deposit(Principal principal, Map<String, Double> map) {
+		User user = getLoggedInUser(principal);
+		SavingBankAccount account = user.getBankAccount();
+		if (account == null)
+			throw new DataNotFoundException("No Bank Accounts FOund Linked with This User account");
+		else {
+			Double amount = map.get("amount");
+			RazorpayDto razorpayDto = paymentUtil.createOrder(amount);
+			return ResponseEntity.ok(new ResponseDto("Payment Initialized Complete Payment to Proceed", razorpayDto));
+		}
+	}
+
+	@Override
+	public ResponseEntity<ResponseDto> confirmPayment(Double amount, String razorpay_payment_id, Principal principal) {
+		User user = getLoggedInUser(principal);
+		SavingBankAccount account = user.getBankAccount();
+		if (account == null)
+			throw new DataNotFoundException("No Bank Accounts FOund Linked with This User account");
+		else {
+			List<BankTransactions> transactions = account.getBankTransactions();
+			if (transactions == null)
+				transactions = new LinkedList<BankTransactions>();
+			BankTransactions transaction = new BankTransactions(null, razorpay_payment_id, amount / 100, "DEPOSIT",
+					null, account.getBalance(), account.getBalance() + amount / 100);
+			transactions.add(transaction);
+			account.setBalance(account.getBalance() + amount / 100);
+			account.setBankTransactions(transactions);
+			savingAccountRepository.save(account);
+			return ResponseEntity.ok(new ResponseDto("Deposit Success", transaction));
+		}
+	}
+
+	
+	@Transactional
+	public ResponseEntity<ResponseDto> transfer(Principal principal, TransferDto dto) {
+		User user = getLoggedInUser(principal);
+		SavingBankAccount fromAccount = user.getBankAccount();
+		SavingBankAccount toAccount = savingAccountRepository.findById(dto.getToAccountNumber())
+				.orElseThrow(() -> new DataNotFoundException("Invalid ToAccount Number"));
+		if (fromAccount == null)
+			throw new DataNotFoundException("No Bank Accounts Found Linked with This User account");
+		else {
+			if (!fromAccount.isActive() || fromAccount.isBlocked() || toAccount.isBlocked() || !toAccount.isActive())
+				throw new PaymentFailedException("Account is Not Active or Blocked Contact Admin");
+			else {
+				if (fromAccount.getBalance() < dto.getAmount())
+					throw new MissMatchException("Not Enough Balance in Your Account");
+				else {
+					List<BankTransactions> fromTransactions = fromAccount.getBankTransactions();
+					if (fromTransactions == null)
+						fromTransactions = new LinkedList<BankTransactions>();
+					BankTransactions fromTransaction = new BankTransactions(null, "", dto.getAmount(), "DEBIT", null,
+							fromAccount.getBalance(), fromAccount.getBalance() - dto.getAmount());
+					fromTransactions.add(fromTransaction);
+					fromAccount.setBalance(fromAccount.getBalance() - dto.getAmount());
+					fromAccount.setBankTransactions(fromTransactions);
+					savingAccountRepository.save(fromAccount);
+
+					List<BankTransactions> toTransactions = toAccount.getBankTransactions();
+					if (toTransactions == null)
+						toTransactions = new LinkedList<BankTransactions>();
+					BankTransactions toTransaction = new BankTransactions(null, "", dto.getAmount(), "CREDIT", null,
+							toAccount.getBalance(), toAccount.getBalance() + dto.getAmount());
+					toTransactions.add(toTransaction);
+					toAccount.setBalance(toAccount.getBalance() + dto.getAmount());
+
+					toAccount.setBankTransactions(toTransactions);
+					savingAccountRepository.save(toAccount);
+
+					return ResponseEntity.ok(new ResponseDto("Amount Transfered Success", dto));
+				}
+			}
+		}
+
+	}
+
 	private User getLoggedInUser(Principal principal) {
+		if (principal == null)
+			throw new DataNotFoundException("Not Logged in , Invalid Session");
 		String email = principal.getName();
 		User user = userRepository.findByEmail(email);
 		if (user == null)
-			throw new DataNotFoundException("Email Not Found in Database");
+			throw new DataNotFoundException("Not Logged in , Invalid Session");
 		else
 			return user;
 	}
 
 }
+

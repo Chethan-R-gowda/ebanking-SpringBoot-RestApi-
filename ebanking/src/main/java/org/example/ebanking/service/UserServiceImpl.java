@@ -233,7 +233,7 @@ public class UserServiceImpl implements UserService {
 		}
 	}
 
-	
+	@Override
 	@Transactional
 	public ResponseEntity<ResponseDto> transfer(Principal principal, TransferDto dto) {
 		User user = getLoggedInUser(principal);
@@ -289,4 +289,3 @@ public class UserServiceImpl implements UserService {
 	}
 
 }
-

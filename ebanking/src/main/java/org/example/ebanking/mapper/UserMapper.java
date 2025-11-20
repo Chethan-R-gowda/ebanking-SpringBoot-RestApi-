@@ -22,5 +22,6 @@ public abstract class UserMapper {
 	public abstract UserDto toDto(User user);
 
 	public abstract List<UserDto> toDtoList(List<User> users);
+	
 
 }

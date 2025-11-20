@@ -7,6 +7,7 @@ import org.example.ebanking.dto.OtpDto;
 import org.example.ebanking.dto.ResetPasswordDto;
 import org.example.ebanking.dto.ResponseDto;
 import org.example.ebanking.dto.SavingAccountDto;
+import org.example.ebanking.dto.TransferDto;
 import org.example.ebanking.dto.UserDto;
 import org.springframework.http.ResponseEntity;
 ;
@@ -34,5 +35,8 @@ public interface UserService {
 	ResponseEntity<ResponseDto> deposit(Principal principal, Map<String, Double> map);
 
 	ResponseEntity<ResponseDto> confirmPayment(Double amount, String razorpay_payment_id, Principal principal);
+
+	ResponseEntity<ResponseDto> transfer(Principal principal, TransferDto dto);
+	
 
 }

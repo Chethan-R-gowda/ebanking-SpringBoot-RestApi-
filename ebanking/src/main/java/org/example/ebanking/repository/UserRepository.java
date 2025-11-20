@@ -1,7 +1,9 @@
 package org.example.ebanking.repository;
 
+import java.util.List;
 import java.util.Optional;
 
+import org.example.ebanking.dto.BankingRole;
 import org.example.ebanking.entity.User;
 import org.springframework.data.jpa.repository.JpaRepository;
 
@@ -13,4 +15,8 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 		User findByEmail(String email);
 		Optional<User> findByBankAccount_accountNumber(Long accountNumber);
+		
+
+		List<User> findByRole(BankingRole user);
+
 }

@@ -5,6 +5,7 @@ import java.util.Map;
 
 import org.example.ebanking.dto.ResponseDto;
 import org.example.ebanking.dto.SavingAccountDto;
+import org.example.ebanking.dto.TransferDto;
 import org.example.ebanking.service.UserService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -48,6 +49,10 @@ public class UserController {
 	public ResponseEntity<ResponseDto> confirmDeposit(@RequestParam Double amount,
 			@RequestParam String razorpay_payment_id, Principal principal) {
 		return userService.confirmPayment(amount, razorpay_payment_id, principal);
+	}
+	@PostMapping("/transafer")
+	public ResponseEntity<ResponseDto> transferAmount(Principal principal,@RequestBody TransferDto dto) {
+		return userService.transfer(principal,dto);
 	}
 
 }

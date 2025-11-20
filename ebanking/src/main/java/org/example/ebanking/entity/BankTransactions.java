@@ -1,6 +1,9 @@
 package org.example.ebanking.entity;
 
+
 import java.time.LocalDateTime;
+
+import org.hibernate.annotations.CreationTimestamp;
 
 import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
@@ -15,20 +18,14 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 @Entity
 public class BankTransactions {
-
-    @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Long id;
-
-    private String paymentId;              // was payment_id – using camelCase in Java
-
-    private Double amount;
-
-    private String type;                   // e.g. "DEPOSIT", "DEBIT", "CREDIT"
-
-    private LocalDateTime createdTime;
-
-    private Double previousBalance;        // <--- NEW FIELD to match your constructor
-
-    private Double balanceAfterTransaction;
+	@Id
+	@GeneratedValue(strategy = GenerationType.IDENTITY)
+	private Long id;
+	private String payment_id;
+	private Double amount;
+	private String type;
+	@CreationTimestamp
+	private LocalDateTime createdTime;
+	private Double balanceBeforeTransaction;
+	private Double balanceAfterTransaction;
 }
